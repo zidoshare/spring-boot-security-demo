@@ -92,3 +92,94 @@ class SpringWebMvcImportSelector implements ImportSelector {
 * WebSecurityConfiguration: 由EnableWebSecurity直接引入的自动配置类
 ，以及一个不常用的Oauth客户端配置类，可以暂且不管。
 
+
+### WebMvcSecurityConfiguration
+
+```java
+class WebMvcSecurityConfiguration implements WebMvcConfigurer, ApplicationContextAware {
+	private BeanResolver beanResolver;
+
+	@Override
+	@SuppressWarnings("deprecation")
+	public void addArgumentResolvers(List<HandlerMethodArgumentResolver> argumentResolvers) {
+		AuthenticationPrincipalArgumentResolver authenticationPrincipalResolver = new AuthenticationPrincipalArgumentResolver();
+		authenticationPrincipalResolver.setBeanResolver(beanResolver);
+		argumentResolvers.add(authenticationPrincipalResolver);
+		argumentResolvers
+				.add(new org.springframework.security.web.bind.support.AuthenticationPrincipalArgumentResolver());
+
+		CurrentSecurityContextArgumentResolver currentSecurityContextArgumentResolver = new CurrentSecurityContextArgumentResolver();
+		currentSecurityContextArgumentResolver.setBeanResolver(beanResolver);
+		argumentResolvers.add(currentSecurityContextArgumentResolver);
+		argumentResolvers.add(new CsrfTokenArgumentResolver());
+	}
+
+	@Bean
+	public RequestDataValueProcessor requestDataValueProcessor() {
+		return new CsrfRequestDataValueProcessor();
+	}
+
+	@Override
+	public void setApplicationContext(ApplicationContext applicationContext) throws BeansException {
+		this.beanResolver = new BeanFactoryResolver(applicationContext.getAutowireCapableBeanFactory());
+	}
+}
+
+```
+
+`HandlerMethodArgumentResolver`是spring mvc用来处理controller参数的扩展点，而在此类中插入了两个Resolver,其中`org.springframework.security.web.bind.support.AuthenticationPrincipalArgumentResolver`
+是用来兼容以前的注解，可以不关注，直接查看`CurrentSecurityContextArgumentResolver`的代码，其中resolveArgument方法，是主要处理方法，很简单的逻辑：
+
+```java
+public final class CurrentSecurityContextArgumentResolver
+		implements HandlerMethodArgumentResolver {
+//...
+    public Object resolveArgument(MethodParameter parameter,
+    				ModelAndViewContainer mavContainer, NativeWebRequest webRequest,
+    				WebDataBinderFactory binderFactory) throws Exception {
+    		SecurityContext securityContext = SecurityContextHolder.getContext();
+    		if (securityContext == null) {
+    			return null;
+    		}
+    		Object securityContextResult = securityContext;
+    
+    		CurrentSecurityContext securityContextAnnotation = findMethodAnnotation(
+    				CurrentSecurityContext.class, parameter);
+    
+    		String expressionToParse = securityContextAnnotation.expression();
+    		if (StringUtils.hasLength(expressionToParse)) {
+    			StandardEvaluationContext context = new StandardEvaluationContext();
+    			context.setRootObject(securityContext);
+    			context.setVariable("this", securityContext);
+    
+    			Expression expression = this.parser.parseExpression(expressionToParse);
+    			securityContextResult = expression.getValue(context);
+    		}
+    
+    		if (securityContextResult != null
+    				&& !parameter.getParameterType().isAssignableFrom(securityContextResult.getClass())) {
+    			if (securityContextAnnotation.errorOnInvalidType()) {
+    				throw new ClassCastException(securityContextResult + " is not assignable to "
+    						+ parameter.getParameterType());
+    			}
+    			else {
+    				return null;
+    			}
+    		}
+    		return securityContextResult;
+    	}
+		}
+//...
+```
+
+主要作用是从`SecurityContextHolder`中获取`SecurityContext`并通过`spel`表达式去转化为我们需要的对象。
+
+简单的理解就是可以用来获取我们当前请求所对应的登录用户
+
+
+### WebSecurityConfiguration
+
+此配置类就复杂多了，里面涉及到很多构造工厂去帮助我们配置spring security中各种庞杂的过滤器。
+
+需要一点一点梳理
+
