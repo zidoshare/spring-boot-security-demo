@@ -789,4 +789,4 @@ public void init(final WebSecurity web) throws Exception {
 
 而我们通过之前的代码会发现，`WebSecurityConfigurerAdapter`本身会由spring boot默认注入或者我们可以自行注入继承替代，这是spring security的核心入口。
 
-所有的前置配置我们就都能联系起来了。
+所有的前置配置我们就都能联系起来了。下篇文章我们再来细看spring-security内部的复杂配置逻辑
